@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use iced::keyboard::{Event, KeyCode, Modifiers};
-use iced_wgpu::{scrollable, text_input, Container, Row, Rule, Scrollable, TextInput};
+use iced_wgpu::{text_input, Container, Row, Rule, TextInput};
 
 use crate::filter::{create_filter_factory, Filter, FilterFactory, Match};
 use crate::menu_item::{ItemState, MenuItem};
@@ -36,7 +36,6 @@ pub struct TMenu {
     exit_code: Arc<Box<AtomicI32>>,
 
     text_input: text_input::State,
-    scrollable: scrollable::State,
 }
 
 impl TMenu {
@@ -139,13 +138,8 @@ impl Program for TMenu {
         }
 
         item_container = iter.fold(item_container, |c, i| c.push(Rule::vertical(12)).push(i));
-        let item_scroll = Scrollable::new(&mut self.scrollable)
-            .width(Length::Fill)
-            .scrollbar_width(0)
-            .scroller_width(0)
-            .push(item_container);
 
-        main_container.push(item_scroll).into()
+        main_container.push(item_container).into()
     }
 }
 
@@ -168,7 +162,6 @@ impl Application for TMenu {
             exit_state: ExitState::Continue,
             filter_factory,
             text_input: text_input::State::focused(),
-            scrollable: scrollable::State::default(),
             exit_code: Arc::new(Box::new(AtomicI32::new(0))),
         };
         if let Some(first) = app.available_options.first_mut() {
