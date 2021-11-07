@@ -10,7 +10,6 @@ use iced_winit::winit::window::WindowBuilder;
 
 use menu_item::MenuItem;
 use tmenu::{TMenu, TMenuSettings};
-use iced::Application;
 
 mod filter;
 mod menu_item;
@@ -71,8 +70,8 @@ fn main() {
         ..iced_wgpu::Settings::from_env()
     };
     iced_winit::application::run::<
-        iced::Instance<TMenu>,
-        <TMenu as Application>::Executor,
+        TMenu,
+        iced_futures::executor::ThreadPool,
         iced_wgpu::window::Compositor,
     >(settings, renderer_settings)
     .unwrap();

@@ -1,13 +1,16 @@
-use std::sync::atomic::{Ordering, AtomicI32};
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use iced::keyboard::{Event, KeyCode, Modifiers};
-use iced::{scrollable, text_input, Command, Container, Element, Length, Row, Rule, Scrollable, Subscription, TextInput, Application};
+use iced_wgpu::{scrollable, text_input, Container, Row, Rule, Scrollable, TextInput};
 
 use crate::filter::{create_filter_factory, Filter, FilterFactory, Match};
 use crate::menu_item::{ItemState, MenuItem};
 use crate::styles;
-use iced_core::Padding;
+use iced_core::{Length, Padding};
+use iced_winit::{Application, Command, Program, Subscription};
 use std::sync::Arc;
+
+type Element<'a, Message> = iced_winit::Element<'a, Message, iced_wgpu::Renderer>;
 
 #[derive(Debug, Default, Clone)]
 pub struct TMenuSettings {
@@ -68,39 +71,9 @@ impl TMenu {
     }
 }
 
-impl Application for TMenu {
-    type Executor = iced::executor::Default;
+impl Program for TMenu {
+    type Renderer = iced_wgpu::Renderer;
     type Message = MainAction;
-    type Flags = TMenuSettings;
-
-    fn new(flags: TMenuSettings) -> (Self, Command<Self::Message>) {
-        let filter_factory = create_filter_factory(&flags);
-        if flags.verbose {
-            eprintln!("\n\n{:?}", filter_factory);
-        }
-        let mut app = TMenu {
-            available_options: flags.available_options,
-            case_insensitive: flags.case_insensitive,
-            allow_undefined: flags.allow_undefined,
-            fuzzy: flags.fuzzy,
-            text_changed: false,
-            verbose: flags.verbose,
-            input: String::new(),
-            exit_state: ExitState::Continue,
-            filter_factory,
-            text_input: text_input::State::focused(),
-            scrollable: scrollable::State::default(),
-            exit_code: Arc::new(Box::new(AtomicI32::new(0))),
-        };
-        if let Some(first) = app.available_options.first_mut() {
-            first.state = ItemState::Active;
-        }
-        (app, Command::none())
-    }
-
-    fn title(&self) -> String {
-        "tmenu".to_string()
-    }
 
     fn update(&mut self, message: MainAction) -> Command<Self::Message> {
         self.text_input.focus();
@@ -127,10 +100,6 @@ impl Application for TMenu {
         };
 
         Command::none()
-    }
-
-    fn subscription(&self) -> Subscription<Self::Message> {
-        iced_native::subscription::events_with(global_keyboard_handler)
     }
 
     fn view(&mut self) -> Element<'_, Self::Message> {
@@ -178,6 +147,43 @@ impl Application for TMenu {
 
         main_container.push(item_scroll).into()
     }
+}
+
+impl Application for TMenu {
+    type Flags = TMenuSettings;
+
+    fn new(flags: TMenuSettings) -> (Self, Command<Self::Message>) {
+        let filter_factory = create_filter_factory(&flags);
+        if flags.verbose {
+            eprintln!("\n\n{:?}", filter_factory);
+        }
+        let mut app = TMenu {
+            available_options: flags.available_options,
+            case_insensitive: flags.case_insensitive,
+            allow_undefined: flags.allow_undefined,
+            fuzzy: flags.fuzzy,
+            text_changed: false,
+            verbose: flags.verbose,
+            input: String::new(),
+            exit_state: ExitState::Continue,
+            filter_factory,
+            text_input: text_input::State::focused(),
+            scrollable: scrollable::State::default(),
+            exit_code: Arc::new(Box::new(AtomicI32::new(0))),
+        };
+        if let Some(first) = app.available_options.first_mut() {
+            first.state = ItemState::Active;
+        }
+        (app, Command::none())
+    }
+
+    fn title(&self) -> String {
+        "tmenu".to_string()
+    }
+
+    fn subscription(&self) -> Subscription<Self::Message> {
+        iced_native::subscription::events_with(global_keyboard_handler)
+    }
 
     fn should_exit(&self) -> bool {
         if let ExitState::Continue = self.exit_state {
@@ -189,9 +195,10 @@ impl Application for TMenu {
 
     fn on_exit(&mut self) -> Option<Box<dyn FnOnce()>> {
         let exit_code = self.exit_code.clone();
-        Some(Box::new(move || std::process::exit(exit_code.load(Ordering::SeqCst))))
+        Some(Box::new(move || {
+            std::process::exit(exit_code.load(Ordering::SeqCst))
+        }))
     }
-
 }
 
 fn apply_filter<'a, 'b>(items: &'b mut [MenuItem], mut filter: Box<dyn Filter<'a> + 'a>) {
