@@ -10,6 +10,7 @@ use iced_winit::winit::window::WindowBuilder;
 
 use menu_item::MenuItem;
 use tmenu::{TMenu, TMenuSettings};
+use crate::tmenu::ExitState;
 
 mod filter;
 mod menu_item;
@@ -26,10 +27,7 @@ impl<M> WindowConfigurator<M> for PlaceOnTopConfigurator {
         mut window_builder: WindowBuilder,
     ) -> WindowBuilder {
         window_builder = window_builder.with_always_on_top(true);
-        if let Some(primary) = window_target.primary_monitor() {
-            window_builder = window_builder.with_position(primary.position());
-            window_builder = window_builder.with_inner_size(primary.size());
-        } else if let Some(primary) = window_target.available_monitors().next() {
+        if let Some(primary) = window_target.primary_monitor().or_else(|| window_target.available_monitors().next()) {
             window_builder = window_builder.with_position(primary.position());
             window_builder = window_builder.with_inner_size(Size::Physical(PhysicalSize {
                 width: primary.size().width,
@@ -43,6 +41,7 @@ impl<M> WindowConfigurator<M> for PlaceOnTopConfigurator {
 
 fn main() {
     let mut app_settings = TMenuSettings::default();
+    let exit_state = app_settings.exit_state.clone();
     parse_args(std::env::args().collect(), &mut app_settings);
 
     let verbose = app_settings.verbose;
@@ -74,11 +73,16 @@ fn main() {
         iced_futures::executor::ThreadPool,
         iced_wgpu::window::Compositor,
     >(settings, renderer_settings)
-    .unwrap();
+        .unwrap();
 
     if verbose {
         eprintln!("The end");
     }
+
+    std::process::exit(match exit_state.get() {
+        ExitState::Abort => 1,
+        _ => 0
+    })
 }
 
 fn parse_args(args: Vec<String>, state: &mut TMenuSettings) {
@@ -89,6 +93,10 @@ fn parse_args(args: Vec<String>, state: &mut TMenuSettings) {
 
     loop {
         match remaining {
+            ["-a" | "--auto-accept", r @ ..] => {
+                state.auto_accept = true;
+                remaining = r;
+            }
             ["-i" | "--case-insensitive", r @ ..] => {
                 state.case_insensitive = true;
                 remaining = r;

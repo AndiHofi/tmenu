@@ -1,4 +1,5 @@
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::cell::Cell;
+use std::rc::Rc;
 
 use iced::keyboard::{Event, KeyCode, Modifiers};
 use iced_wgpu::{text_input, Container, Row, Rule, TextInput};
@@ -8,40 +9,55 @@ use crate::menu_item::{ItemState, MenuItem};
 use crate::styles;
 use iced_core::{Length, Padding};
 use iced_winit::{Application, Command, Program, Subscription};
-use std::sync::Arc;
 
 type Element<'a, Message> = iced_winit::Element<'a, Message, iced_wgpu::Renderer>;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct TMenuSettings {
+    pub auto_accept: bool,
     pub case_insensitive: bool,
     pub allow_undefined: bool,
     pub filter_by_prefix: bool,
     pub fuzzy: bool,
     pub verbose: bool,
     pub available_options: Vec<MenuItem>,
+    pub exit_state: Rc<Cell<ExitState>>,
+}
+
+impl Default for TMenuSettings {
+    fn default() -> Self {
+        Self {
+            auto_accept: false,
+            case_insensitive: false,
+            allow_undefined: false,
+            filter_by_prefix: false,
+            fuzzy: false,
+            verbose: false,
+            available_options: vec![],
+            exit_state: Rc::new(Cell::new(ExitState::Continue))
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct TMenu {
     available_options: Vec<MenuItem>,
+    auto_accept: bool,
     case_insensitive: bool,
     allow_undefined: bool,
     fuzzy: bool,
     text_changed: bool,
     verbose: bool,
     input: String,
-    exit_state: ExitState,
+    exit_state: Rc<Cell<ExitState>>,
     filter_factory: Box<dyn FilterFactory>,
-    exit_code: Arc<Box<AtomicI32>>,
 
     text_input: text_input::State,
 }
 
 impl TMenu {
     fn action_abort(&mut self) {
-        self.exit_state = ExitState::Abort;
-        self.exit_code.store(1, Ordering::SeqCst);
+        self.exit_state.set(ExitState::Abort);
     }
 
     fn select_next(&mut self, offset: isize) {
@@ -82,8 +98,7 @@ impl Program for TMenu {
             MainAction::Exit => {
                 if let Some((_, result)) = find_active(&mut self.available_options) {
                     println!("{}", result.value());
-                    self.exit_state = ExitState::Exit;
-                    self.exit_code.store(0, Ordering::SeqCst);
+                    self.exit_state.set(ExitState::Exit);
                 } else {
                     self.action_abort()
                 }
@@ -95,6 +110,13 @@ impl Program for TMenu {
 
                 apply_filter(&mut self.available_options, filter);
                 self.input = new_input;
+
+                if self.auto_accept && self.available_options.iter().filter(|e| e.visible()).count() == 1 {
+                    if let Some((_, result)) = find_active(&mut self.available_options) {
+                        println!("{}", result.value());
+                        self.exit_state.set(ExitState::Exit);
+                    }
+                }
             }
         };
 
@@ -105,13 +127,13 @@ impl Program for TMenu {
         let main_input = TextInput::new(&mut self.text_input, "option", &self.input, |input| {
             MainAction::TextChanged(input)
         })
-        .padding(Padding {
-            top: 5,
-            right: 0,
-            bottom: 5,
-            left: 0,
-        })
-        .on_submit(MainAction::Exit);
+            .padding(Padding {
+                top: 5,
+                right: 0,
+                bottom: 5,
+                left: 0,
+            })
+            .on_submit(MainAction::Exit);
 
         let mut main_container = Row::new();
         main_container = main_container.push(
@@ -153,16 +175,16 @@ impl Application for TMenu {
         }
         let mut app = TMenu {
             available_options: flags.available_options,
+            auto_accept: flags.auto_accept,
             case_insensitive: flags.case_insensitive,
             allow_undefined: flags.allow_undefined,
             fuzzy: flags.fuzzy,
             text_changed: false,
             verbose: flags.verbose,
             input: String::new(),
-            exit_state: ExitState::Continue,
+            exit_state: flags.exit_state,
             filter_factory,
             text_input: text_input::State::focused(),
-            exit_code: Arc::new(Box::new(AtomicI32::new(0))),
         };
         if let Some(first) = app.available_options.first_mut() {
             first.state = ItemState::Active;
@@ -179,7 +201,7 @@ impl Application for TMenu {
     }
 
     fn should_exit(&self) -> bool {
-        if let ExitState::Continue = self.exit_state {
+        if let ExitState::Continue = self.exit_state.get() {
             false
         } else {
             true
@@ -187,10 +209,15 @@ impl Application for TMenu {
     }
 
     fn on_exit(&mut self) -> Option<Box<dyn FnOnce()>> {
-        let exit_code = self.exit_code.clone();
-        Some(Box::new(move || {
-            std::process::exit(exit_code.load(Ordering::SeqCst))
-        }))
+        // let exit_code = self.exit_state.clone();
+        // Some(Box::new(move || {
+        //     std::process::exit(match exit_code.get() {
+        //         ExitState::Abort => 1,
+        //         _ => 0
+        //     })
+        // }))
+
+        Some(Box::new(move || {}))
     }
 }
 
@@ -293,9 +320,9 @@ fn global_keyboard_handler(
     }
     match event {
         iced_native::Event::Keyboard(Event::KeyPressed {
-            key_code,
-            modifiers,
-        }) => on_key_pressed(key_code, modifiers, status),
+                                         key_code,
+                                         modifiers,
+                                     }) => on_key_pressed(key_code, modifiers, status),
 
         _ => Some(MainAction::Focus),
     }
@@ -317,8 +344,8 @@ impl Default for MainAction {
     }
 }
 
-#[derive(Debug)]
-enum ExitState {
+#[derive(Debug, Copy, Clone)]
+pub enum ExitState {
     Continue,
     Exit,
     Abort,

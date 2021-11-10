@@ -70,6 +70,10 @@ impl MenuItem {
         };
         Some(result.into())
     }
+
+    pub fn visible(&self) -> bool {
+        self.state != ItemState::Hidden
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
