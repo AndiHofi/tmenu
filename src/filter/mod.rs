@@ -6,7 +6,7 @@ use crate::filter::case_insensitive::CIFactory;
 use crate::filter::case_sensitive::CSFactory;
 use crate::filter::Match::NoMatch;
 use crate::menu_item::MenuItem;
-use crate::tmenu::TMenuSettings;
+use crate::tmenu_settings::TMenuSettings;
 
 mod case_insensitive;
 mod case_sensitive;

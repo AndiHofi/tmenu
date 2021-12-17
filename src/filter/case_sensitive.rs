@@ -2,7 +2,7 @@ use crate::filter::{
     Filter, FilterFactory,
 };
 use crate::filter::entry_filter::{Entry, EntryFilter};
-use crate::tmenu::TMenuSettings;
+use crate::tmenu_settings::TMenuSettings;
 
 #[derive(Debug)]
 pub struct CSFactory {

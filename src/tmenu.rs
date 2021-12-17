@@ -1,43 +1,17 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use iced::keyboard::{Event, KeyCode, Modifiers};
-use iced_wgpu::{text_input, Container, Row, Rule, TextInput};
+use iced_core::keyboard::{Event, KeyCode, Modifiers};
+use iced_core::{Length, Padding};
+use iced_wgpu::{Container, Row, Rule, text_input, TextInput};
+use iced_winit::{Application, Command, Program, Subscription};
 
 use crate::filter::{create_filter_factory, Filter, FilterFactory, Match};
 use crate::menu_item::{ItemState, MenuItem};
 use crate::styles;
-use iced_core::{Length, Padding};
-use iced_winit::{Application, Command, Program, Subscription};
+use crate::tmenu_settings::TMenuSettings;
 
 type Element<'a, Message> = iced_winit::Element<'a, Message, iced_wgpu::Renderer>;
-
-#[derive(Debug, Clone)]
-pub struct TMenuSettings {
-    pub auto_accept: bool,
-    pub case_insensitive: bool,
-    pub allow_undefined: bool,
-    pub filter_by_prefix: bool,
-    pub fuzzy: bool,
-    pub verbose: bool,
-    pub available_options: Vec<MenuItem>,
-    pub exit_state: Rc<Cell<ExitState>>,
-}
-
-impl Default for TMenuSettings {
-    fn default() -> Self {
-        Self {
-            auto_accept: false,
-            case_insensitive: false,
-            allow_undefined: false,
-            filter_by_prefix: false,
-            fuzzy: false,
-            verbose: false,
-            available_options: vec![],
-            exit_state: Rc::new(Cell::new(ExitState::Continue))
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct TMenu {
