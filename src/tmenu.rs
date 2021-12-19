@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use iced_core::keyboard::{Event, KeyCode, Modifiers};
 use iced_core::{Length, Padding};
-use iced_wgpu::{Container, Row, Rule, text_input, TextInput};
+use iced_wgpu::{text_input, Container, Row, Rule, TextInput};
 use iced_winit::{Application, Command, Program, Subscription};
 
 use crate::filter::{create_filter_factory, Filter, FilterFactory, Match};
@@ -55,7 +55,17 @@ impl TMenu {
                 if let Some((_, i)) = visible.get_mut(next_active as usize) {
                     i.state = ItemState::Active;
                 }
+            } else if offset == 1 {
+                visible.first_mut().unwrap().1.state = ItemState::Active;
+            } else if offset == -1 {
+                visible.last_mut().unwrap().1.state = ItemState::Active;
             }
+        }
+    }
+
+    fn take_text(&mut self) {
+        if let Some((_, item)) = find_active(&mut self.available_options) {
+            self.input = item.text.to_string();
         }
     }
 }
@@ -73,19 +83,37 @@ impl Program for TMenu {
                 if let Some((_, result)) = find_active(&mut self.available_options) {
                     println!("{}", result.value());
                     self.exit_state.set(ExitState::Exit);
+                } else if self.allow_undefined && !self.input.is_empty() {
+                    println!("{}", self.input);
+                    self.exit_state.set(ExitState::Exit);
                 } else {
                     self.action_abort()
                 }
             }
             MainAction::Next => self.select_next(1),
+            MainAction::NextTab => {
+                self.select_next(1);
+                self.take_text();
+            }
             MainAction::Previous => self.select_next(-1),
+            MainAction::PreviousTab => {
+                self.select_next(-1);
+                self.take_text();
+            }
             MainAction::TextChanged(new_input) => {
                 let filter = self.filter_factory.create(&new_input);
 
-                apply_filter(&mut self.available_options, filter);
+                apply_filter(&mut self.available_options, filter, !self.allow_undefined);
                 self.input = new_input;
 
-                if self.auto_accept && self.available_options.iter().filter(|e| e.visible()).count() == 1 {
+                if self.auto_accept
+                    && self
+                        .available_options
+                        .iter()
+                        .filter(|e| e.visible())
+                        .count()
+                        == 1
+                {
                     if let Some((_, result)) = find_active(&mut self.available_options) {
                         println!("{}", result.value());
                         self.exit_state.set(ExitState::Exit);
@@ -101,13 +129,13 @@ impl Program for TMenu {
         let main_input = TextInput::new(&mut self.text_input, "option", &self.input, |input| {
             MainAction::TextChanged(input)
         })
-            .padding(Padding {
-                top: 5,
-                right: 0,
-                bottom: 5,
-                left: 0,
-            })
-            .on_submit(MainAction::Exit);
+        .padding(Padding {
+            top: 5,
+            right: 0,
+            bottom: 5,
+            left: 0,
+        })
+        .on_submit(MainAction::Exit);
 
         let mut main_container = Row::new();
         main_container = main_container.push(
@@ -160,8 +188,10 @@ impl Application for TMenu {
             filter_factory,
             text_input: text_input::State::focused(),
         };
-        if let Some(first) = app.available_options.first_mut() {
-            first.state = ItemState::Active;
+        if !app.allow_undefined {
+            if let Some(first) = app.available_options.first_mut() {
+                first.state = ItemState::Active;
+            }
         }
         (app, Command::none())
     }
@@ -181,21 +211,13 @@ impl Application for TMenu {
             true
         }
     }
-
-    fn on_exit(&mut self) -> Option<Box<dyn FnOnce()>> {
-        // let exit_code = self.exit_state.clone();
-        // Some(Box::new(move || {
-        //     std::process::exit(match exit_code.get() {
-        //         ExitState::Abort => 1,
-        //         _ => 0
-        //     })
-        // }))
-
-        Some(Box::new(move || {}))
-    }
 }
 
-fn apply_filter<'a, 'b>(items: &'b mut [MenuItem], mut filter: Box<dyn Filter<'a> + 'a>) {
+fn apply_filter<'a, 'b>(
+    items: &'b mut [MenuItem],
+    mut filter: Box<dyn Filter<'a> + 'a>,
+    update_selection: bool,
+) {
     let previous_active = find_active(items).map(|e| e.0);
 
     let mut match_offset = None;
@@ -219,6 +241,19 @@ fn apply_filter<'a, 'b>(items: &'b mut [MenuItem], mut filter: Box<dyn Filter<'a
         return;
     }
 
+    if !update_selection {
+        return;
+    }
+
+    select_item(previous_active, match_offset, &mut all_visible, match_count);
+}
+
+fn select_item(
+    previous_active: Option<usize>,
+    match_offset: Option<u32>,
+    all_visible: &mut [(usize, &mut MenuItem)],
+    match_count: usize,
+) {
     let mut to_activate = if let Some(match_offset) = match_offset {
         if let Some((_, i)) = all_visible.get_mut(match_offset as usize % match_count) {
             i
@@ -267,9 +302,9 @@ fn global_keyboard_handler(
             KeyCode::Escape => modifiers.is_empty().then(|| Abort).unwrap_or(Focus),
             KeyCode::Tab => {
                 if modifiers.is_empty() {
-                    Next
+                    NextTab
                 } else if modifiers == Modifiers::SHIFT {
-                    Previous
+                    PreviousTab
                 } else {
                     Focus
                 }
@@ -294,9 +329,9 @@ fn global_keyboard_handler(
     }
     match event {
         iced_native::Event::Keyboard(Event::KeyPressed {
-                                         key_code,
-                                         modifiers,
-                                     }) => on_key_pressed(key_code, modifiers, status),
+            key_code,
+            modifiers,
+        }) => on_key_pressed(key_code, modifiers, status),
 
         _ => Some(MainAction::Focus),
     }
@@ -308,7 +343,9 @@ pub enum MainAction {
     Abort,
     Exit,
     Next,
+    NextTab,
     Previous,
+    PreviousTab,
     TextChanged(String),
 }
 
