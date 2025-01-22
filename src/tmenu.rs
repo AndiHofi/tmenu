@@ -1,17 +1,21 @@
-use std::cell::Cell;
-use std::rc::Rc;
-
-use iced_core::keyboard::{Event, KeyCode, Modifiers};
-use iced_core::{Length, Padding};
-use iced_wgpu::{text_input, Container, Row, Rule, TextInput};
-use iced_winit::{Application, Command, Program, Subscription};
-
 use crate::filter::{create_filter_factory, Filter, FilterFactory, Match};
 use crate::menu_item::{ItemState, MenuItem};
 use crate::styles;
 use crate::tmenu_settings::TMenuSettings;
+use iced::application::Update;
+use iced::widget::{container, row, rule, text_input, Row};
+use iced_core::keyboard::key::Named;
+use iced_core::keyboard::{Event, Key, Modifiers};
+use iced_core::{Length, Padding, Widget};
+use iced_futures::{subscription, Subscription};
+use iced_winit::runtime::{task, Action, Program, Task};
+use std::cell::Cell;
+use std::rc::Rc;
+use iced::window;
+use iced_core::widget::operation;
+use iced_winit::runtime::task::widget;
 
-type Element<'a, Message> = iced_winit::Element<'a, Message, iced_wgpu::Renderer>;
+type TElement<'a> = iced::Element<'a, MainAction>;
 
 #[derive(Debug)]
 pub struct TMenu {
@@ -25,8 +29,6 @@ pub struct TMenu {
     input: String,
     exit_state: Rc<Cell<ExitState>>,
     filter_factory: Box<dyn FilterFactory>,
-
-    text_input: text_input::State,
 }
 
 impl TMenu {
@@ -70,15 +72,13 @@ impl TMenu {
     }
 }
 
-impl Program for TMenu {
-    type Renderer = iced_wgpu::Renderer;
-    type Message = MainAction;
-
-    fn update(&mut self, message: MainAction) -> Command<Self::Message> {
-        self.text_input.focus();
+impl TMenu {
+    pub fn update(&mut self, message: MainAction) -> Task<MainAction> {
         match message {
             MainAction::Focus => {}
-            MainAction::Abort => self.action_abort(),
+            MainAction::Abort => {
+                self.action_abort();
+            },
             MainAction::Exit => {
                 if let Some((_, result)) = find_active(&mut self.available_options) {
                     println!("{}", result.value());
@@ -87,7 +87,7 @@ impl Program for TMenu {
                     println!("{}", self.input);
                     self.exit_state.set(ExitState::Exit);
                 } else {
-                    self.action_abort()
+                    self.action_abort();
                 }
             }
             MainAction::Next => self.select_next(1),
@@ -122,32 +122,36 @@ impl Program for TMenu {
             }
         };
 
-        Command::none()
+        if matches!(self.exit_state.get(), ExitState::Continue) {
+            task::effect(Action::widget(operation::focusable::focus(iced_core::widget::Id::new("input"))))
+        } else {
+            window::get_latest().and_then(window::close)
+        }
     }
 
-    fn view(&mut self) -> Element<'_, Self::Message> {
-        let main_input = TextInput::new(&mut self.text_input, "option", &self.input, |input| {
-            MainAction::TextChanged(input)
-        })
-        .padding(Padding {
-            top: 5,
-            right: 0,
-            bottom: 5,
-            left: 0,
-        })
-        .on_submit(MainAction::Exit);
-
-        let mut main_container = Row::new();
-        main_container = main_container.push(
-            Container::new(main_input)
-                .width(Length::Units(300))
+    pub fn view(&self) -> TElement<'_> {
+        let main_input = text_input("option", &self.input)
+            .id("input")
+            .on_input(|input| MainAction::TextChanged(input))
+            .padding(Padding {
+                top: 5.0,
+                right: 0.0,
+                bottom: 5.0,
+                left: 0.0,
+            })
+            .on_submit(MainAction::Exit);
+        let mut children: Vec<TElement> = Vec::new();
+        children.push(
+            container(main_input)
+                .width(Length::Fixed(300.0))
                 .height(Length::Fill)
                 .max_width(300)
-                .padding(styles::TEXT_INPUT_PADDING),
+                .padding(styles::TEXT_INPUT_PADDING).into()
         );
-        let mut item_container = Row::new();
 
-        let start_pos = find_active(&mut self.available_options)
+        let mut items = Vec::new();
+
+        let start_pos = find_active(&self.available_options)
             .map(|a| a.0.max(2) - 2)
             .unwrap_or(0);
 
@@ -158,19 +162,24 @@ impl Program for TMenu {
             .flat_map(MenuItem::view);
 
         if let Some(i) = iter.next() {
-            item_container = item_container.push(i);
+            items.push(i);
         }
 
-        item_container = iter.fold(item_container, |c, i| c.push(Rule::vertical(12)).push(i));
+        iter.fold(&mut items, |c, i| {
+            c.push(rule::Rule::vertical(6).into());
+            c.push(i);
+            c
+        });
 
-        main_container.push(item_container).into()
+        children.push(row(items).into());
+        row(children).into()
     }
 }
 
-impl Application for TMenu {
-    type Flags = TMenuSettings;
+type Flags = TMenuSettings;
 
-    fn new(flags: TMenuSettings) -> (Self, Command<Self::Message>) {
+impl TMenu {
+    pub fn new(flags: TMenuSettings) -> Self {
         let filter_factory = create_filter_factory(&flags);
         if flags.verbose {
             eprintln!("\n\n{:?}", filter_factory);
@@ -186,22 +195,21 @@ impl Application for TMenu {
             input: String::new(),
             exit_state: flags.exit_state,
             filter_factory,
-            text_input: text_input::State::focused(),
         };
         if !app.allow_undefined {
             if let Some(first) = app.available_options.first_mut() {
                 first.state = ItemState::Active;
             }
         }
-        (app, Command::none())
+        app
     }
 
     fn title(&self) -> String {
         "tmenu".to_string()
     }
 
-    fn subscription(&self) -> Subscription<Self::Message> {
-        iced_native::subscription::events_with(global_keyboard_handler)
+    pub fn subscription(&self) -> Subscription<MainAction> {
+        iced::keyboard::on_key_press(on_key_pressed)
     }
 
     fn should_exit(&self) -> bool {
@@ -254,7 +262,7 @@ fn select_item(
     all_visible: &mut [(usize, &mut MenuItem)],
     match_count: usize,
 ) {
-    let mut to_activate = if let Some(match_offset) = match_offset {
+    let to_activate = if let Some(match_offset) = match_offset {
         if let Some((_, i)) = all_visible.get_mut(match_offset as usize % match_count) {
             i
         } else {
@@ -281,61 +289,93 @@ fn all_visible(items: &mut [MenuItem]) -> Vec<(usize, &mut MenuItem)> {
         .collect()
 }
 
-fn find_active(items: &mut [MenuItem]) -> Option<(usize, &MenuItem)> {
+fn find_active(items: &[MenuItem]) -> Option<(usize, &MenuItem)> {
     items
         .iter()
         .enumerate()
         .find(|i| i.1.state == ItemState::Active)
 }
 
-fn global_keyboard_handler(
-    event: iced_native::Event,
-    status: iced_native::event::Status,
-) -> Option<MainAction> {
-    fn on_key_pressed(
-        key_code: KeyCode,
-        modifiers: Modifiers,
-        _status: iced_native::event::Status,
-    ) -> Option<MainAction> {
-        use MainAction::*;
-        let action = match key_code {
-            KeyCode::Escape => modifiers.is_empty().then(|| Abort).unwrap_or(Focus),
-            KeyCode::Tab => {
-                if modifiers.is_empty() {
-                    NextTab
-                } else if modifiers == Modifiers::SHIFT {
-                    PreviousTab
-                } else {
-                    Focus
-                }
+fn on_key_pressed(key_code: Key, modifiers: Modifiers) -> Option<MainAction> {
+    use MainAction::*;
+    let action = match key_code {
+        Key::Named(Named::Escape) => modifiers.is_empty().then(|| Abort).unwrap_or(Focus),
+        Key::Named(Named::Tab) => {
+            if modifiers.is_empty() {
+                NextTab
+            } else if modifiers == Modifiers::SHIFT {
+                PreviousTab
+            } else {
+                Focus
             }
-            KeyCode::Right => {
-                if modifiers.is_empty() {
-                    Next
-                } else {
-                    Focus
-                }
+        }
+        Key::Named(Named::ArrowRight) => {
+            if modifiers.is_empty() {
+                Next
+            } else {
+                Focus
             }
-            KeyCode::Left => {
-                if modifiers.is_empty() {
-                    Previous
-                } else {
-                    Focus
-                }
+        }
+        Key::Named(Named::ArrowLeft) => {
+            if modifiers.is_empty() {
+                Previous
+            } else {
+                Focus
             }
-            _ => Focus,
-        };
-        Some(action)
-    }
-    match event {
-        iced_native::Event::Keyboard(Event::KeyPressed {
-            key_code,
-            modifiers,
-        }) => on_key_pressed(key_code, modifiers, status),
-
-        _ => Some(MainAction::Focus),
-    }
+        }
+        _ => Focus,
+    };
+    Some(action)
 }
+
+// fn global_keyboard_handler(
+//     event: iced_native::Event,
+//     status: iced_native::event::Status,
+// ) -> Option<MainAction> {
+//     fn on_key_pressed(
+//         key_code: KeyCode,
+//         modifiers: Modifiers,
+//         _status: iced_native::event::Status,
+//     ) -> Option<MainAction> {
+//         use MainAction::*;
+//         let action = match key_code {
+//             KeyCode::Escape => modifiers.is_empty().then(|| Abort).unwrap_or(Focus),
+//             KeyCode::Tab => {
+//                 if modifiers.is_empty() {
+//                     NextTab
+//                 } else if modifiers == Modifiers::SHIFT {
+//                     PreviousTab
+//                 } else {
+//                     Focus
+//                 }
+//             }
+//             KeyCode::Right => {
+//                 if modifiers.is_empty() {
+//                     Next
+//                 } else {
+//                     Focus
+//                 }
+//             }
+//             KeyCode::Left => {
+//                 if modifiers.is_empty() {
+//                     Previous
+//                 } else {
+//                     Focus
+//                 }
+//             }
+//             _ => Focus,
+//         };
+//         Some(action)
+//     }
+//     match event {
+//         iced_native::Event::Keyboard(Event::KeyPressed {
+//             key_code,
+//             modifiers,
+//         }) => on_key_pressed(key_code, modifiers, status),
+//
+//         _ => Some(MainAction::Focus),
+//     }
+// }
 
 #[derive(Clone, Debug)]
 pub enum MainAction {

@@ -1,12 +1,12 @@
-use iced_core::{alignment};
+use iced_core::{alignment, Length, Theme};
 
 use crate::styles;
 use crate::tmenu::MainAction;
 use std::fmt::{Debug, Formatter};
-use iced_native::widget::{Text, Container};
-use iced_native::Length;
+use iced::{widget, Element};
+use iced::widget::container;
 
-type Element<'a> = iced_native::Element<'a, MainAction, iced_wgpu::Renderer>;
+type MyElement<'a> = Element<'a, crate::tmenu::MainAction>;
 
 #[derive(Clone)]
 pub struct MenuItem {
@@ -79,17 +79,17 @@ impl MenuItem {
         self.value.as_deref().unwrap_or(self.text.as_str())
     }
 
-    pub fn view<'a>(&self) -> Option<Element<'a>> {
+    pub fn view<'a>(&self) -> Option<MyElement<'a>> {
         if self.state == ItemState::Hidden {
             return None;
         }
-        let text = Text::new(self.text.clone()).vertical_alignment(alignment::Vertical::Center);
-        let text = Container::new(text)
-            .height(Length::Units(30))
+        let text = widget::text(self.text.clone()).align_y(alignment::Vertical::Center);
+        let text = widget::container(text)
+            .height(Length::Fixed(30f32))
             .align_y(alignment::Vertical::Center);
         let result = match self.state {
-            ItemState::Active => text.style(styles::ActiveItem),
-            _ => text.style(styles::DefaultItem),
+            ItemState::Active => text.style(container::bordered_box),
+            _ => text.style(container::transparent),
         };
         Some(result.into())
     }

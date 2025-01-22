@@ -17,6 +17,7 @@ pub struct TMenuSettings {
     pub print_help: PrintHelp,
     pub available_options: Vec<MenuItem>,
     pub exit_state: Rc<Cell<ExitState>>,
+    pub width: Option<u32>
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ impl Default for TMenuSettings {
             print_help: PrintHelp::No,
             available_options: vec![],
             exit_state: Rc::new(Cell::new(ExitState::Continue)),
+            width: None
         }
     }
 }
@@ -106,6 +108,14 @@ fn parse_args(args: Vec<String>, state: &mut TMenuSettings) -> bool {
             }
             ["-u" | "--allow-undefined", r @ ..] => {
                 state.allow_undefined = true;
+                remaining = r;
+            }
+            ["-w" | "--width", w, r @ ..] => {
+                let Ok(width) = w.parse() else {
+                    eprintln!("Cannot parse width");
+                    exit(-1);
+                };
+                state.width = Some(width);
                 remaining = r;
             }
             ["--", options @ ..] => {
