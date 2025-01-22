@@ -1,0 +1,64 @@
+= tmenu
+
+
+tmenu is a global graphical menu bar that can select a select a single menu option using the keyboard. It is typically launched by shell scripts to let users select
+a single option to continue a script after selecting an option.
+
+This can be used to build launchers, and complex global desctop shortcuts.
+
+tmenu is heavily inspired dmenu. It does have a slightly different feature set and API though.
+
+
+== State of developlment
+
+This tool is (again) heavily in development after laying dormant on my private machine for 2 years.
+
+The `master` branch may not build right now, as it depends on a patched version of iced and winit to do the menu placement on top of the main active screen properly.
+
+The `iced_update` branch does build now, does not know about the screen resolution though and creates a 1024 by 30 menu.
+
+
+== Building
+
+Install rustup and select the latest stable Rust version.
+
+`cargo build --release`
+
+== Usage
+
+
+Menu items can be passed as command line parameters, or streamed in per system in.
+
+Reads menu items from standard input. Each non-empty line defines a new menu item.
+The menu starts rendering after the input stream is closed (ctrl+D in terminal emulators)
+
+`tmenu [options]`
+
+Menu items are passed as command line parameters.
+
+`tmenu [options] -- <item> ...`
+
+=== Options
+
+-v | --verbose:: A more verbose log output. Note that this option breaks some scripts that integrate tmenu
+-a | --auto-accept:: Automatically accept an option and close the menu, when only one item matches the user input
+-i | --case-insensitive:: Item filtering is case insensitive
+-u | --allow-undefined:: Allow menu outputs that are not in the passed items
+-f | --fuzzy:: Use a more fuzzy filtering algorithm
+-w | --width <pixels>:: width of the menu bar, when detecting screen width does not work
+
+=== Menu Items
+
+Menu items can have an optional mnemonic, an optional key and the text that is displayed in the menu.
+
+When an item has a mnemonic, then it is given priority on filtering when the mnemonic is provided as user input. 
+The mnemonic is never part of the result.
+
+When an item as a key, then the key is used as `tmenu` result when the item is selected, instead of the item text. The key is not shown in the menu UI.
+
+----
+item :=     [mnemonic] [key] value
+mnemonic := '(' AlphaNumeric ')'
+key :=      AlphaNumeric '='
+value :=    AlphaNumeric
+----
